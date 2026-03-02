@@ -1,0 +1,3 @@
+
+SAMPLE = True
+TEMPERATURE = 0.7
