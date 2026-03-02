@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+
+# Pre-trained models & large files
+external_models/
+Blenderbot_small-90M/
+DialoGPT-small/
+
+# Cached/processed data
+DATA/pmpc.pmpc/data.pkl
+DATA/pmpc.pmpc/data.pkl.bak
+DATA/pmpc.pmpc/tokenizer.pt
+DATA/pmpc.pmpc/2026-*/
+
+# Training outputs & checkpoints
+SAVE/
+save/
+checkpoint*/
+*.ckpt
+
+# Logs
+*.log
+
+# Apex (NVIDIA library, not our code)
+apex/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+env.yml
