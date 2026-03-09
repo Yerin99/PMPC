@@ -11,10 +11,10 @@
 
 cd "$(dirname "$0")/.."
 
-# Best checkpoint (lowest val PPL: 14.976)
-CHECKPOINT="./DATA/pmpc.pmpc/2026-01-20145646.1e-05.16.1gpu/epoch-3.bin"
+# Best checkpoint (lowest val PPL: 14.84)
+CHECKPOINT="./DATA/pmpc.pmpc/2026-03-02161445.1e-05.16.1gpu/epoch-3.bin"
 
-CUDA_VISIBLE_DEVICES=0 python infer.py \
+CUDA_VISIBLE_DEVICES=1 python infer.py \
     --config_name pmpc \
     --inputter_name pmpc \
     --load_checkpoint "$CHECKPOINT" \
