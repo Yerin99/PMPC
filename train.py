@@ -75,6 +75,22 @@ parser.add_argument("--fp16", type=boolean_string, default=False)
 parser.add_argument("--loss_scale", type=float, default=0)
 parser.add_argument('--pbar', type=boolean_string, default=True, help='turn on progress bar')
 
+# 018 method: LoRA + Scheduled Sampling
+parser.add_argument('--no_strat_in_seq', action='store_true', default=False,
+                    help='B condition: exclude strategy tokens from encoder context and decoder labels')
+parser.add_argument('--lora_lr', type=float, default=None,
+                    help='Separate learning rate for LoRA parameters (default: same as --learning_rate)')
+parser.add_argument('--use_scheduled_sampling', type=boolean_string, default=False,
+                    help='Enable scheduled sampling for strategy tokens')
+parser.add_argument('--ss_schedule_type', type=str, default='step',
+                    choices=['step', 'linear', 'inverse_sigmoid'])
+parser.add_argument('--ss_warmup_epochs', type=int, default=1,
+                    help='Number of warmup epochs with 100%% GT')
+parser.add_argument('--ss_p_sample', type=float, default=0.1,
+                    help='Probability to use predicted strategy')
+parser.add_argument('--ss_p_random', type=float, default=0.0,
+                    help='Probability to use random strategy')
+
 # distributed
 parser.add_argument('--local_rank', type=int, default=-1, help='for torch.distributed')
 parser.add_argument('--config', help='JSON config file')
@@ -190,6 +206,7 @@ dataloader_kwargs = {
     'max_knowledge_len': args.max_knowledge_len,
     'label_num': args.label_num,
     'only_encode': args.only_encode,
+    'no_strat_in_seq': args.no_strat_in_seq,
 }
 eval_dataloader_loss = inputter.valid_dataloader(
     toker=toker,
@@ -217,15 +234,69 @@ if args.local_rank == -1 or get_rank() == 0:
 
 param_optimizer = list(model.named_parameters())
 no_decay = ['bias', 'ln', 'LayerNorm.weight']   # no decay for bias and LayerNorm (ln)
-optimizer_grouped_parameters = [
-    {'params': [p for n, p in param_optimizer if p.requires_grad and not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-    {'params': [p for n, p in param_optimizer if p.requires_grad and any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-]
+
+# 018: Separate LoRA lr if specified
+lora_lr = args.lora_lr
+if lora_lr is not None and lora_lr != args.learning_rate:
+    lora_params_decay = []
+    lora_params_no_decay = []
+    base_params_decay = []
+    base_params_no_decay = []
+    for n, p in param_optimizer:
+        if not p.requires_grad:
+            continue
+        is_lora = '.lora_a' in n or '.lora_b' in n
+        is_no_decay = any(nd in n for nd in no_decay)
+        if is_lora:
+            if is_no_decay:
+                lora_params_no_decay.append(p)
+            else:
+                lora_params_decay.append(p)
+        else:
+            if is_no_decay:
+                base_params_no_decay.append(p)
+            else:
+                base_params_decay.append(p)
+
+    lora_count = sum(p.numel() for p in lora_params_decay + lora_params_no_decay)
+    if args.local_rank == -1 or get_rank() == 0:
+        logger.info(f'LoRA params: {lora_count}, lr={lora_lr}')
+
+    optimizer_grouped_parameters = [
+        {'params': base_params_decay, 'weight_decay': 0.01, 'lr': args.learning_rate},
+        {'params': base_params_no_decay, 'weight_decay': 0.0, 'lr': args.learning_rate},
+        {'params': lora_params_decay, 'weight_decay': 0.01, 'lr': lora_lr},
+        {'params': lora_params_no_decay, 'weight_decay': 0.0, 'lr': lora_lr},
+    ]
+    # Remove empty groups
+    optimizer_grouped_parameters = [g for g in optimizer_grouped_parameters if len(g['params']) > 0]
+else:
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if p.requires_grad and not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if p.requires_grad and any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
 
 optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate,)
 scheduler = get_linear_schedule_with_warmup(
     optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=args.num_optim_steps
 )
+
+# 018: Scheduled sampling setup
+if args.use_scheduled_sampling:
+    from utils.scheduled_sampling import StrategyScheduledSampler
+    raw_model = model.module if hasattr(model, 'module') else model
+    num_epochs_for_ss = args.num_epochs if args.num_epochs is not None else 10
+    sampler = StrategyScheduledSampler(
+        schedule_type=args.ss_schedule_type,
+        warmup_epochs=args.ss_warmup_epochs,
+        total_epochs=num_epochs_for_ss,
+        p_sample=args.ss_p_sample,
+        p_random=args.ss_p_random,
+        num_strategies=8,
+    )
+    raw_model.set_scheduled_sampler(sampler)
+    if args.local_rank == -1 or get_rank() == 0:
+        logger.info(f'Scheduled sampling: {sampler}')
 
 if args.fp16:
     logger.info('in fp16, using FusedAdam')
@@ -269,6 +340,13 @@ if args.local_rank == -1 or get_rank() == 0:
 
 while True:
     model.train()
+    # 018: Update scheduled sampling epoch
+    if args.use_scheduled_sampling:
+        raw_model_ss = model.module if hasattr(model, 'module') else model
+        if raw_model_ss._scheduled_sampler is not None:
+            raw_model_ss._scheduled_sampler.set_epoch(epoch)
+            if args.local_rank == -1 or get_rank() == 0:
+                logger.info(f'SS epoch {epoch}: {raw_model_ss._scheduled_sampler}')
     (tr_loss, tr_ppl, mean_ppl, nb_tr_examples, nb_tr_steps) = 0.0, 0.0, 0.0, 0, 0
     n_token_real, n_token_total = 0, 0
     train_start_time_epoch = time.time()

@@ -72,6 +72,10 @@ parser.add_argument("--length_penalty", type=float, default=1.0)
 parser.add_argument("--repetition_penalty", type=float, default=1.0)
 parser.add_argument("--no_repeat_ngram_size", type=int, default=0)
 
+# 018 B condition
+parser.add_argument('--no_strat_in_seq', action='store_true', default=False,
+                    help='B condition: exclude strategy tokens from encoder context and decoder labels')
+
 args = parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -118,6 +122,7 @@ dataloader_kwargs = {
     'multi_knl': args.multi_knl,
     'only_encode': args.only_encode,
     'infer_batch_size': args.infer_batch_size,
+    'no_strat_in_seq': args.no_strat_in_seq,
 }
 
 pad = toker.pad_token_id

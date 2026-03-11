@@ -24,6 +24,8 @@ parser.add_argument('--max_knowledge_length', type=int, default=None, help='disc
 parser.add_argument('--label_num', type=int, default=None)
 parser.add_argument('--only_encode', action='store_true', help='only do encoding')
 parser.add_argument('--single_processing', action='store_true', help='do not use multiprocessing')
+parser.add_argument('--no_strat_in_seq', action='store_true', default=False,
+                    help='B condition: exclude strategy tokens from encoder context and decoder labels')
 
 args = parser.parse_args()
 
@@ -50,6 +52,7 @@ kwargs = {
     'max_knowledge_length': args.max_knowledge_length,
     'label_num': args.label_num,
     'only_encode': args.only_encode,
+    'no_strat_in_seq': args.no_strat_in_seq,
 }
 
 def process_data(line):

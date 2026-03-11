@@ -45,17 +45,19 @@ class InputFeatures(object):
     def __init__(
         self,
         input_ids,
-        decoder_input_ids, 
+        decoder_input_ids,
         labels,
         situation_ids=None,  # PMPC: situation tokens
+        strat_id=None,  # 018 B condition: explicit strat_id
     ):
         self.input_ids = input_ids
         self.input_length = len(input_ids)
-        
+
         self.decoder_input_ids = decoder_input_ids
         self.decoder_input_length = len(decoder_input_ids)
         self.labels = labels
-        
+        self.strat_id = strat_id  # 018 B condition
+
         # PMPC specific
         self.situation_ids = situation_ids if situation_ids else []
         self.situation_length = len(self.situation_ids) if situation_ids else 0
@@ -66,20 +68,28 @@ class InputFeatures(object):
 def featurize(
     bos, eos,
     context, max_input_length,
-    response, max_decoder_input_length, 
+    response, max_decoder_input_length,
     strat_id,
     situation=None, max_situation_length=50,  # PMPC: situation
+    no_strat_in_seq=False,  # 018 B condition
 ):
-    """Feature 생성 - situation 포함"""
+    """Feature 생성 - situation 포함, B condition 지원"""
     context = [c + [eos] for c in context]
     input_ids = sum(context, [])[:-1]
     input_ids = input_ids[-max_input_length:]
-    
-    labels = ([strat_id] + response + [eos])[:max_decoder_input_length + 1]
+
+    saved_strat_id = None
+    if no_strat_in_seq:
+        # B condition: strategy token excluded from labels/decoder
+        saved_strat_id = strat_id  # save for collate
+        labels = (response + [eos])[:max_decoder_input_length + 1]
+    else:
+        labels = ([strat_id] + response + [eos])[:max_decoder_input_length + 1]
+
     decoder_input_ids = [bos] + labels[:-1]
-    
+
     assert len(decoder_input_ids) == len(labels), decoder_input_ids[1:] == labels[:-1]
-    
+
     # PMPC: situation tokens
     situation_ids = None
     if situation is not None:
@@ -89,42 +99,49 @@ def featurize(
         input_ids,
         decoder_input_ids, labels,
         situation_ids=situation_ids,
+        strat_id=saved_strat_id,
     )
 
 
 def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
-    """데이터 → 입력 변환 - situation 포함"""
+    """데이터 → 입력 변환 - situation 포함, B condition 지원"""
     process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
-    
+    no_strat_in_seq = kwargs.get('no_strat_in_seq', False)
+
     dialog = data['dialog']
     situation = data.get('situation', '')  # PMPC: situation
-    
+
     # Tokenize situation
     situation_tokens = process(situation) if situation else []
-    
+
     inputs = []
     context = []
-    
+
     for i in range(len(dialog)):
         text = _norm(dialog[i]['text'])
         text = process(text)
-        
+
         if dialog[i]['speaker'] == 'sys':
             strat_id = process('[' + dialog[i]['strategy'] + ']')
             assert len(strat_id) == 1
             strat_id = strat_id[0]
-        
+
         if i > 0 and dialog[i]['speaker'] == 'sys':
             res = {
                 'context': context.copy(),
                 'response': text,
                 'strat_id': strat_id,
                 'situation': situation_tokens,  # PMPC
+                'no_strat_in_seq': no_strat_in_seq,  # 018 B condition
             }
             inputs.append(res)
 
         if dialog[i]['speaker'] == 'sys':
-            text = [strat_id] + text
+            # B condition: skip strategy prepend in context
+            if no_strat_in_seq:
+                pass  # text remains without strat_id prefix
+            else:
+                text = [strat_id] + text
 
         context = context + [text]
 
@@ -161,10 +178,11 @@ def convert_inputs_to_features(inputs, toker, **kwargs):
         feat = featurize(
             bos, eos,
             ipt['context'], max_input_length,
-            ipt['response'], max_decoder_input_length, 
+            ipt['response'], max_decoder_input_length,
             ipt['strat_id'],
             situation=ipt.get('situation', None),
             max_situation_length=max_situation_length,
+            no_strat_in_seq=ipt.get('no_strat_in_seq', False),
         )
         features.append(feat)
     return features
@@ -224,10 +242,14 @@ class FeatureDataset(Dataset):
             )
             labels = None
         
-        # Strategy ID
-        strat_id = torch.tensor(
-            [f.labels[0] for f in features], dtype=torch.long
-        ) - len(toker) + 8
+        # Strategy ID: B condition uses explicit strat_id, A condition extracts from labels[0]
+        strat_ids_raw = []
+        for f in features:
+            if f.strat_id is not None:
+                strat_ids_raw.append(f.strat_id)  # already a token id
+            else:
+                strat_ids_raw.append(f.labels[0])
+        strat_id = torch.tensor(strat_ids_raw, dtype=torch.long) - len(toker) + 8
         
         # PMPC: Situation IDs
         has_situation = any(len(f.situation_ids) > 0 for f in features)

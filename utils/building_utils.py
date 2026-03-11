@@ -54,11 +54,19 @@ def build_model(only_toker=False, checkpoint=None, local_rank=-1, **kwargs):
     if 'expanded_vocab' in config:
         toker.add_tokens(config['expanded_vocab'], special_tokens=True)
     model.tie_tokenizer(toker)
-    
+
+    if hasattr(model, 'apply_runtime_config'):
+        model.apply_runtime_config(config)
+
     if checkpoint is not None:
         if local_rank == -1 or get_rank() == 0:
             logger.info('loading finetuned model from %s' % checkpoint)
-        model.load_state_dict(torch.load(checkpoint, map_location=torch.device('cpu')))
+        state_dict = torch.load(checkpoint, map_location=torch.device('cpu'))
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing and (local_rank == -1 or get_rank() == 0):
+            logger.info(f'Missing keys ({len(missing)}): {missing[:5]}...' if len(missing) > 5 else f'Missing keys: {missing}')
+        if unexpected and (local_rank == -1 or get_rank() == 0):
+            logger.info(f'Unexpected keys ({len(unexpected)}): {unexpected[:5]}...' if len(unexpected) > 5 else f'Unexpected keys: {unexpected}')
     
     return toker, model
 
