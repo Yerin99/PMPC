@@ -1,0 +1,21 @@
+{
+  "model_name": "pmpc_blenderbot_small_018",
+  "pretrained_model_path": "./Blenderbot_small-90M",
+  "expanded_vocab": [
+    "[Question]",
+    "[Restatement or Paraphrasing]",
+    "[Reflection of feelings]",
+    "[Self-disclosure]",
+    "[Affirmation and Reassurance]",
+    "[Providing Suggestions]",
+    "[Information]",
+    "[Others]"
+  ],
+  "no_strat_in_seq": false,
+  "lora_num_experts": 8,
+  "lora_rank": 8,
+  "lora_alpha": 16,
+  "lora_dropout": 0.05,
+  "lora_base_trainable": true,
+  "lora_use_encoder_shared": true
+}
