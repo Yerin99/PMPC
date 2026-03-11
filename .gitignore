@@ -11,10 +11,7 @@ Blenderbot_small-90M/
 DialoGPT-small/
 
 # Cached/processed data
-DATA/pmpc.pmpc/data.pkl
-DATA/pmpc.pmpc/data.pkl.bak
-DATA/pmpc.pmpc/tokenizer.pt
-DATA/pmpc.pmpc/2026-*/
+DATA
 
 # Training outputs & checkpoints
 SAVE/
