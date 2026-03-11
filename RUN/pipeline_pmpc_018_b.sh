@@ -23,9 +23,9 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 
 # --- Configuration ---
 P_SAMPLES=(0.0 0.05 0.1 0.15 0.2)
-TRAIN_FILE=./_reformat/701515/train.txt
-VALID_FILE=./_reformat/701515/valid.txt
-TEST_FILE=./_reformat/701515/test.txt
+TRAIN_FILE=./_reformat/train.txt
+VALID_FILE=./_reformat/valid.txt
+TEST_FILE=./_reformat/test.txt
 
 SASREC_SRC_DIR=/home/yerin/baseline/DKFPE/codes_zcj/DATA/sasrec
 SASREC_MODEL=./DATA/sasrec/best_model.pt
