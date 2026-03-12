@@ -31,6 +31,7 @@ from inputters import inputters
 from inputters.inputter_utils import _norm
 from metric.myMetrics import Metric
 from utils.building_utils import boolean_string, build_model, deploy_model
+from utils.eval_utils import eval_model_loss
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
@@ -175,7 +176,22 @@ def main():
             **dataloader_kwargs
         )
 
+        metric_res = {}
         if not args.only_generate:
+            loss_loader = inputter.valid_dataloader(
+                corpus_file=infer_input_file,
+                toker=toker,
+                batch_size=args.infer_batch_size,
+                **dataloader_kwargs
+            )
+            infer_loss, _, _, _, _ = eval_model_loss(
+                model=model,
+                eval_dataloader=loss_loader,
+                epoch_id=0,
+                infer=True,
+                args=args,
+            )
+            metric_res['perplexity'] = float(np.exp(infer_loss))
             metric = Metric(toker)
 
         res = []
@@ -265,7 +281,7 @@ def main():
 
         # Compute metrics
         if not args.only_generate:
-            metric_res = metric.close()[0]
+            metric_res.update(metric.close()[0])
 
             # Strategy accuracy from SASREC data (has ground truth)
             gt_strats = []
