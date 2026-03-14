@@ -709,11 +709,10 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
         })
 
         # Step 8: Pd computation
-        # When external strat_id: use hard lookup for hstrat
-        # When self-predicted: use soft (matmul) — PMPC default
-        external_strat = encoded_info.get('strat_id', None) is not None
-        if external_strat:
-            hstrat = self.prompt_builder.Estrat(strat_id)
+        # Use ensemble_probs (soft) if available, otherwise fall back to strategy_probs
+        ensemble_probs = encoded_info.get('ensemble_probs', None)
+        if ensemble_probs is not None:
+            hstrat = self.prompt_builder.compute_hstrat(ensemble_probs)
         else:
             hstrat = self.prompt_builder.compute_hstrat(strategy_probs)
 
